@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+
+  <arg name="pacmod_param_path" default="$(find as)/config/pacmod_param.yaml"/>   
+
+  <!-- pacmod interface -->
+  <node pkg="as" type="pacmod_interface" name="pacmod_interface" output="screen">
+    <rosparam command="load" file="$(arg pacmod_param_path)"/>
+  </node>
+
+</launch>
