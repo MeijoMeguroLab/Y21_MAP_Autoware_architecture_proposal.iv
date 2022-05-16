@@ -41,6 +41,8 @@
 
 #ifndef PCL_REGISTRATION_NDT_OMP_IMPL_H_
 #define PCL_REGISTRATION_NDT_OMP_IMPL_H_
+//  #include <fstream>
+//  std::ofstream ofs_point("/home/megken/BAGs/points_size.csv");
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 template <typename PointSource, typename PointTarget>
@@ -135,10 +137,11 @@ void ndt_omp::NormalDistributionsTransform<PointSource, PointTarget>::computeTra
 
   double score = 0;
   double delta_p_norm;
+  double epsiron = 0;
 
   // Calculate derivates of initial transform vector, subsequent derivative calculations are done in the step length
   // determination.
-  score = computeDerivatives(score_gradient, hessian, output, p);
+  score = computeDerivatives(score_gradient, hessian, output, p, epsiron);
   bool converged_rotation = false;
   while (!converged_) {
     // Store previous transformation
@@ -217,6 +220,20 @@ void ndt_omp::NormalDistributionsTransform<PointSource, PointTarget>::computeTra
     nr_iterations_++;
   }
 
+   int M = input_->points.size();
+   double sigma_square = 2 * epsiron * 200 / (M - 3);
+
+ // double sigma_square = -5;
+  covariance_ = sigma_square * hessian.inverse();
+  //std::cout << hessian(0,0)*hessian(1,1)-hessian(0,1)*hessian(1,0) << std::endl;
+  
+  // ofs_point
+  // << M 
+  // <<"," << sigma_square
+  // <<"," << score
+  // <<"," << epsiron
+  // <<std::endl;
+  // std::cout << covariance_ << std::endl;
   // Store transformation probability.  The realtive differences within each scan registration are accurate
   // but the normalization constants need to be modified for it to be globally accurate
   trans_probability_ = score / static_cast<double>(input_->points.size());
@@ -233,10 +250,11 @@ int omp_get_thread_num() { return 0; }
 template <typename PointSource, typename PointTarget>
 double ndt_omp::NormalDistributionsTransform<PointSource, PointTarget>::computeDerivatives(
   Eigen::Matrix<double, 6, 1> & score_gradient, Eigen::Matrix<double, 6, 6> & hessian,
-  PointCloudSource & trans_cloud, Eigen::Matrix<double, 6, 1> & p, bool compute_hessian)
+  PointCloudSource & trans_cloud, Eigen::Matrix<double, 6, 1> & p, double &epsiron, bool compute_hessian)
 {
   score_gradient.setZero();
   hessian.setZero();
+  epsiron = 0;
   double score = 0;
 
   std::vector<double> scores(num_threads_);
@@ -337,6 +355,8 @@ double ndt_omp::NormalDistributionsTransform<PointSource, PointTarget>::computeD
     score_gradient += score_gradients[i];
     hessian += hessians[i];
   }
+
+   epsiron -= log(score);
 
   return (score);
 }
@@ -876,10 +896,11 @@ double ndt_omp::NormalDistributionsTransform<PointSource, PointTarget>::computeS
   // New transformed point cloud
   transformPointCloud(*input_, trans_cloud, final_transformation_);
 
+  double epsiron = 0;
   // Updates score, gradient and hessian.  Hessian calculation is unessisary but testing showed that most step
   // calculations use the initial step suggestion and recalculation the reusable portions of the hessian would intail
   // more computation time.
-  score = computeDerivatives(score_gradient, hessian, trans_cloud, x_t, true);
+  score = computeDerivatives(score_gradient, hessian, trans_cloud, x_t, epsiron, true);
 
   // Calculate phi(alpha_t)
   double phi_t = -score;
@@ -920,8 +941,9 @@ double ndt_omp::NormalDistributionsTransform<PointSource, PointTarget>::computeS
     // Done on final cloud to prevent wasted computation
     transformPointCloud(*input_, trans_cloud, final_transformation_);
 
+    double epsiron = 0;
     // Updates score, gradient. Values stored to prevent wasted computation.
-    score = computeDerivatives(score_gradient, hessian, trans_cloud, x_t, false);
+    score = computeDerivatives(score_gradient, hessian, trans_cloud, x_t, epsiron, false);
 
     // Calculate phi(alpha_t+)
     phi_t = -score;

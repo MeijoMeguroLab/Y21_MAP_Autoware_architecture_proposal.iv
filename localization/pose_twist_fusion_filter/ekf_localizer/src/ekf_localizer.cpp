@@ -510,6 +510,7 @@ void EKFLocalizer::measurementUpdatePose(const geometry_msgs::PoseStamped & pose
     R(2, 0) = current_pose_covariance_.at(30);  // yaw - x
     R(2, 1) = current_pose_covariance_.at(31);  // yaw - y
     R(2, 2) = current_pose_covariance_.at(35);  // yaw - yaw
+    
   } else {
     const double ekf_yaw = ekf_.getXelement(delay_step * dim_x_ + IDX::YAW);
     const double vx = ekf_.getXelement(delay_step * dim_x_ + IDX::VX);

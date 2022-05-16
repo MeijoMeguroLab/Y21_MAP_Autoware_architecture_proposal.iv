@@ -9,7 +9,7 @@
   <arg name="input_initial_pose_name" default="initialpose" />
 
   <!-- for Pose measurement -->
-  <arg name="use_pose_with_covariance" default="false"/>
+  <arg name="use_pose_with_covariance" default="True"/>
   <arg name="input_pose_name" default="in_pose"/>
   <arg name="input_pose_with_cov_name" default="in_pose_with_covariance"/>
   <arg name="pose_additional_delay" default="0.0"/>

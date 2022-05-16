@@ -47,7 +47,7 @@ private:
   void checkLocalizationAccuracy(diagnostic_updater::DiagnosticStatusWrapper & stat);
   void onPoseWithCovariance(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr & input_msg);
   visualization_msgs::Marker createEllipseMarker(
-    const Ellipse & ellipse, const geometry_msgs::PoseWithCovarianceStamped & pose_with_cov);
+    const Ellipse & ellipse, const geometry_msgs::PoseWithCovarianceStamped & pose_with_cov, const size_t i);
   void onTimer(const ros::TimerEvent & event);
 
 public:

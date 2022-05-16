@@ -156,6 +156,8 @@ public:
    */
   inline double getTransformationProbability() const { return (trans_probability_); }
 
+  inline Eigen::Matrix<double, 6, 6> getCovariance() const { return covariance_; }
+
   /** \brief Get the number of iterations required to calculate alignment.
    * \return final number of iterations
    */
@@ -248,7 +250,7 @@ protected:
    */
   double computeDerivatives(
     Eigen::Matrix<double, 6, 1> & score_gradient, Eigen::Matrix<double, 6, 6> & hessian,
-    PointCloudSource & trans_cloud, Eigen::Matrix<double, 6, 1> & p, bool compute_hessian = true);
+    PointCloudSource & trans_cloud, Eigen::Matrix<double, 6, 1> & p, double &epsiron, bool compute_hessian = true);
 
   /** \brief Compute individual point contirbutions to derivatives of probability function w.r.t. the transformation
    * vector. \note Equation 6.10, 6.12 and 6.13 [Magnusson 2009]. \param[in,out] score_gradient the gradient vector of
@@ -412,6 +414,8 @@ protected:
   /** \brief The probability score of the transform applied to the input cloud, Equation 6.9 and 6.10 [Magnusson 2009].
    */
   double trans_probability_;
+
+  Eigen::Matrix<double, 6, 6> covariance_;
 
   /** \brief Precomputed Angular Gradient
    *
