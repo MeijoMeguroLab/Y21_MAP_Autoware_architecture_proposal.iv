@@ -81,6 +81,8 @@ PurePursuitNode::PurePursuitNode() : nh_(""), private_nh_("~"), tf_listener_(tf_
   // Publishers
   pub_ctrl_cmd_ =
     private_nh_.advertise<autoware_control_msgs::ControlCommandStamped>("output/control_raw", 1);
+  pub_kappa_ =
+    private_nh_.advertise<std_msgs::Float32>("/kappa", 1);
 
   // Debug Publishers
   pub_debug_marker_ = private_nh_.advertise<visualization_msgs::MarkerArray>("debug/marker", 0);
@@ -148,6 +150,10 @@ void PurePursuitNode::publishCommand(const TargetValues & targets) const
   cmd.control =
     createControlCommand(targets.kappa, targets.velocity, targets.acceleration, param_.wheel_base);
   pub_ctrl_cmd_.publish(cmd);
+
+  std_msgs::Float32 kappa;
+  kappa.data = targets.kappa;
+  pub_kappa_.publish(kappa);
 }
 
 void PurePursuitNode::publishDebugMarker() const

@@ -44,6 +44,7 @@
 #include <autoware_planning_msgs/Trajectory.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TwistStamped.h>
+#include <std_msgs/Float32.h>
 
 #include "pure_pursuit/pure_pursuit.h"
 
@@ -102,6 +103,7 @@ private:
 
   // Publisher
   ros::Publisher pub_ctrl_cmd_;
+  ros::Publisher pub_kappa_;
 
   void publishCommand(const TargetValues & targets) const;
 
