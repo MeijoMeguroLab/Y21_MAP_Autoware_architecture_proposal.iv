@@ -144,6 +144,13 @@ std::vector<Eigen::Matrix4f> NormalDistributionsTransformPCLModified<
 }
 
 template <class PointSource, class PointTarget>
+Eigen::Matrix<double, 6, 6> NormalDistributionsTransformPCLModified<PointSource, PointTarget>::getCovariance()
+  const
+{
+  //return ndt_ptr_->getCovariance();
+}
+
+template <class PointSource, class PointTarget>
 Eigen::Matrix<double, 6, 6>
 NormalDistributionsTransformPCLModified<PointSource, PointTarget>::getHessian() const
 {

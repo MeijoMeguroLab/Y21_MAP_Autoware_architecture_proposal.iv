@@ -134,6 +134,13 @@ Eigen::Matrix4f NormalDistributionsTransformOMP<PointSource, PointTarget>::getFi
 }
 
 template <class PointSource, class PointTarget>
+Eigen::Matrix<double, 6, 6> NormalDistributionsTransformOMP<PointSource, PointTarget>::getCovariance()
+  const
+{
+  return ndt_ptr_->getCovariance();
+}
+
+template <class PointSource, class PointTarget>
 std::vector<Eigen::Matrix4f>
 NormalDistributionsTransformOMP<PointSource, PointTarget>::getFinalTransformationArray() const
 {

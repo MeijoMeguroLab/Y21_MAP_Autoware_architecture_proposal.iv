@@ -157,4 +157,11 @@ private:
 
   std::thread diagnostic_thread_;
   std::map<std::string, std::string> key_value_stdmap_;
+
+  Eigen::Vector3d tmp_centroid_;
+  Eigen::Matrix<double,3,3> tmp_cov_;
+  int stop_offset_ID=0;
+  double ellipse_long_radius;
+  double ellipse_short_radius;
+  double chi = 9.21;  // Chi-square distribution value of error ellipse 99%
 };
