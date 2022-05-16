@@ -22,7 +22,7 @@
   <arg name="resolution" default="2.0" doc="The ND voxel grid resolution" />
   <arg name="max_iterations" default="30.0" doc="The number of iterations required to calculate alignment" />
 
-  <arg name="converged_param_transform_probability" default="2.0" doc="" />
+  <arg name="converged_param_transform_probability" default="3.0" doc="" />
 
   <!-- OMP Params -->
   <arg name="omp_neighborhood_search_method" default="0" doc="0:KDTREE, 1:DIRECT26, 2:DIRECT7, 3:DIRECT1" />
@@ -34,7 +34,7 @@
   <arg name="node_name" value="$(anon ndt_scan_matcher)" if="$(arg use_anonymous_node_name)" doc="Use anonymous option" />
 
 
-  <node pkg="ndt_scan_matcher" type="ndt_scan_matcher" name="$(arg node_name)" output="screen">
+  <node pkg="ndt_scan_matcher" type="ndt_scan_matcher" name="$(arg node_name)" output="log">
 
     <remap from="points_raw" to="$(arg input_sensor_points_topic)" />
     <param name="input_sensor_points_queue_size" value="$(arg input_sensor_points_queue_size)" />

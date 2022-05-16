@@ -17,8 +17,6 @@
 #include <Eigen/Dense>
 #include <localization_error_monitor/node.hpp>
 
-int i=0;
-
 LocalizationErrorMonitor::LocalizationErrorMonitor()
 {
   pnh_.param<double>("scale", scale_, 3);
@@ -57,7 +55,7 @@ void LocalizationErrorMonitor::checkLocalizationAccuracy(
 }
 
 visualization_msgs::Marker LocalizationErrorMonitor::createEllipseMarker(
-  const Ellipse & ellipse, const geometry_msgs::PoseWithCovarianceStamped & pose_with_cov ,const size_t i)
+  const Ellipse & ellipse, const geometry_msgs::PoseWithCovarianceStamped & pose_with_cov)
 {
   tf2::Quaternion quat;
   quat.setEuler(0, 0, ellipse.yaw);
@@ -66,9 +64,9 @@ visualization_msgs::Marker LocalizationErrorMonitor::createEllipseMarker(
   const double ellipse_short_radius = std::min(ellipse.short_radius, 30.0);
   visualization_msgs::Marker marker;
   marker.header = pose_with_cov.header;
-  marker.header.stamp = ros::Time::now();
-  marker.ns = "error_ellipse" + std::to_string(i);
-  marker.id = i;
+  marker.header.stamp = ros::Time();
+  marker.ns = "error_ellipse";
+  marker.id = 0;
   marker.type = visualization_msgs::Marker::SPHERE;
   marker.action = visualization_msgs::Marker::ADD;
   marker.pose = pose_with_cov.pose.pose;
@@ -76,11 +74,10 @@ visualization_msgs::Marker LocalizationErrorMonitor::createEllipseMarker(
   marker.scale.x =  ellipse_long_radius * 2;
   marker.scale.y = ellipse_short_radius * 2;
   marker.scale.z = 0.01;
-  marker.color.a = 1.0;
+  marker.color.a = 0.1;
   marker.color.r = 0.0;
-  marker.color.g = 1.0;
-  marker.color.b = 0.0;
-  //marker.lifetime = ros::Duration();
+  marker.color.g = 0.0;
+  marker.color.b = 1.0;
   return marker;
 }
 
@@ -106,6 +103,6 @@ void LocalizationErrorMonitor::onPoseWithCovariance(
   const Eigen::Vector2d pc_vector = eigensolver.eigenvectors().col(1);
   ellipse_.yaw = std::atan2(pc_vector.y(), pc_vector.x());
 
-  const auto ellipse_marker = createEllipseMarker(ellipse_, *input_msg, i++);
+  const auto ellipse_marker = createEllipseMarker(ellipse_, *input_msg);
   ellipse_marker_pub_.publish(ellipse_marker);
 }

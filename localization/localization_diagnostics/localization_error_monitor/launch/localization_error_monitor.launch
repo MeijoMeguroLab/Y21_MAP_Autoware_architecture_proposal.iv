@@ -1,5 +1,5 @@
 <launch>
-  <arg name="input/pose_with_cov" default="/localization/pose_estimator/pose_with_covariance" />
+  <arg name="input/pose_with_cov" default="/localization/pose_twist_fusion_filter/pose_with_covariance" />
 
   <node name="localization_error_monitor" type="localization_error_monitor" pkg="localization_error_monitor" output="screen">
     <remap from="~input/pose_with_cov" to="$(arg input/pose_with_cov)" />

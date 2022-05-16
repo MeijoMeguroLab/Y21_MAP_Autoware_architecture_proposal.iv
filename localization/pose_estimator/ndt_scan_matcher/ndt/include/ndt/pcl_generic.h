@@ -51,7 +51,6 @@ public:
   boost::shared_ptr<const pcl::PointCloud<PointTarget>> getInputTarget() const override;
   boost::shared_ptr<const pcl::PointCloud<PointSource>> getInputSource() const override;
   Eigen::Matrix4f getFinalTransformation() const override;
-  Eigen::Matrix<double, 6, 6> getCovariance() const;
   std::vector<Eigen::Matrix4f> getFinalTransformationArray() const override;
 
   Eigen::Matrix<double, 6, 6> getHessian() const override;

@@ -50,7 +50,6 @@ public:
   virtual boost::shared_ptr<const pcl::PointCloud<PointTarget>> getInputTarget() const = 0;
   virtual boost::shared_ptr<const pcl::PointCloud<PointSource>> getInputSource() const = 0;
   virtual Eigen::Matrix4f getFinalTransformation() const = 0;
-  virtual Eigen::Matrix<double, 6, 6> getCovariance() const=0;
   virtual std::vector<Eigen::Matrix4f> getFinalTransformationArray() const = 0;
 
   virtual Eigen::Matrix<double, 6, 6> getHessian() const = 0;

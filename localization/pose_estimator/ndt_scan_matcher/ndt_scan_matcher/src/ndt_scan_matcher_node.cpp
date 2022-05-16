@@ -23,6 +23,7 @@ int main(int argc, char ** argv)
   ros::init(argc, argv, "ndt_scan_matcher");
   ros::NodeHandle nh;
   ros::NodeHandle private_nh("~");
+
   NDTScanMatcher node(nh, private_nh);
 
   ros::spin();

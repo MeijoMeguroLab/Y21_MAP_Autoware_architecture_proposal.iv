@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
- #include <fstream>
-std::ofstream ofs_NDT;
-
 #include "ndt_scan_matcher/ndt_scan_matcher_core.h"
 
 #include <algorithm>
@@ -31,7 +28,6 @@ std::ofstream ofs_NDT;
 #include <pcl_conversions/pcl_conversions.h>
 
 #include "ndt_scan_matcher/util_func.h"
-
 
 NDTScanMatcher::NDTScanMatcher(ros::NodeHandle nh, ros::NodeHandle private_nh)
 : nh_(nh),
@@ -64,7 +60,6 @@ NDTScanMatcher::NDTScanMatcher(ros::NodeHandle nh, ros::NodeHandle private_nh)
     private_nh_.getParam("omp_neighborhood_search_method", search_method);
     omp_params_.search_method = static_cast<ndt_omp::NeighborSearchMethod>(search_method);
     // TODO check search_method is valid value.
-    
     ndt_omp_ptr->setNeighborhoodSearchMethod(omp_params_.search_method);
 
     private_nh_.getParam("omp_num_threads", omp_params_.num_threads);
@@ -77,37 +72,6 @@ NDTScanMatcher::NDTScanMatcher(ros::NodeHandle nh, ros::NodeHandle private_nh)
     ROS_INFO("NDT Implement Type is PCL GENERIC");
     ndt_ptr_.reset(new NormalDistributionsTransformPCLGeneric<PointSource, PointTarget>);
   }
-
-   ofs_NDT.open("/home/megken/BAGs/judg.csv",std::ios_base::app);
-   ofs_NDT
-   <<"initial_points"
-   <<","<<"ros_time"
-   <<","<<"exe_time"
-   <<","<<"Warn_NDT"
-   <<","<<"Warn_TP"
-   <<","<<"Warn_iteration"
-   <<","<<"Warn_exe_time"
-   <<","<<"across_error"
-   <<","<<"current_pose.x"
-   <<","<<"current_pose.y"
-   // <<","<<"current_pose.z"
-  // <<","<<"current_pose.z"
-  // <<","<<"transformation_probability"
-  // <<","<<"covariance_xx"
-  // <<","<<"covariance_xy"
-  // <<","<<"covariance_yx"
-  // <<","<<"covariance_yy"
-  <<","<<"ellipse_short_radius" 
-  <<","<<"max_TP"
-  <<","<<"max_itr"
-  <<","<<"ellipse center"
-  <<","<<"ellipse hesse"
-  <<","<<"ellipse_yaw"
-  <<","<<"ellipse_long_radius" 
-  <<","<<"stop_offset_ID"
-  <<","<<"across_error"
-  <<","<<"along_error"
-  <<std::endl;
 
   int points_queue_size = 0;
   private_nh_.getParam("input_sensor_points_queue_size", points_queue_size);
@@ -347,7 +311,7 @@ void NDTScanMatcher::callbackSensorPoints(
 
   // check
   if (initial_pose_msg_ptr_array_.empty()) {
-    ROS_WARN_STREAM_THROTTLE(1, "No Pose");
+    ROS_WARN_STREAM_THROTTLE(1, "No Pose!");
     return;
   }
   // searchNNPose using timestamp
@@ -371,341 +335,31 @@ void NDTScanMatcher::callbackSensorPoints(
     ROS_WARN_STREAM_THROTTLE(1, "No MAP!");
     return;
   }
-
   // align
   Eigen::Affine3d initial_pose_affine;
   tf2::fromMsg(initial_pose_cov_msg.pose.pose, initial_pose_affine);
   const Eigen::Matrix4f initial_pose_matrix = initial_pose_affine.matrix().cast<float>();
-  Eigen::Matrix4f initial_pose_matrix_;
 
-  double align_time_sum = 0;
-  Eigen::Matrix4f center_result_pose_matrix(Eigen::Matrix4f::Identity());
-  std::vector<Eigen::Matrix4f> center_result_pose_matrix_array;
-  Eigen::Matrix<double, 6, 6> center_result_cov_matrix;
-  float center_transform_probability;
-  size_t cener_iteration_num;
-  bool is_converged = true;
-  static size_t skipping_publish_num = 0;
-  int Warn_NDT=0;
-  int Warn_TP=0;
-  int Warn_iteration=0;
-  int Warn_exe_time=0;
-  int Warn_across_error=0;
-  float TP_max=10;
-  size_t itr_max=0;  
+  pcl::PointCloud<PointSource>::Ptr output_cloud(new pcl::PointCloud<PointSource>);
+  const auto align_start_time = std::chrono::system_clock::now();
+  key_value_stdmap_["state"] = "Aligning";
+  ndt_ptr_->align(*output_cloud, initial_pose_matrix);
+  key_value_stdmap_["state"] = "Sleeping";
+  const auto align_end_time = std::chrono::system_clock::now();
+  const double align_time =
+    std::chrono::duration_cast<std::chrono::microseconds>(align_end_time - align_start_time)
+      .count() /
+    1000.0;
 
-  double initial_roll, ndt_pose_roll;
-  double initial_pitch, ndt_pose_pitch;
-  double initial_yaw, ndt_pose_yaw;
-  double ellipse_yaw;
-  double laplace_ellipse_yaw;
-
-  double A,B,C,across_error,along_error;
-  Eigen::Matrix2d P;
-  Eigen::Vector2d e;
-  Eigen::MatrixXd along_tmp,across_tmp;
-
-  std::ofstream ofs_NDT_each;
-  std::stringstream ss;
-  ss << sensor_ros_time;
-  std::string dir_name = "/home/megken/BAGs/00_OUTPUT_.iv/" + ss.str();
-  boost::filesystem::create_directory(dir_name);
-  ofs_NDT_each.open(dir_name +"/" + "each_location.csv");
-  ofs_NDT_each
-  <<"sensor_ros_time"
-  <<","<<"x_offset"
-  <<","<<"y_offset"
-  <<","<<"z_offset"
-  <<","<<"roll_offset"
-  <<","<<"pitch_offset"
-  <<","<<"yaw_offset"
-  <<","<<"current_convergence_x"
-  <<","<<"current_convergence_y"
-  <<","<<"current_convergence_z"
-  <<","<<"current_convergence_roll"
-  <<","<<"current_convergence_pitch"
-  <<","<<"current_convergence_yaw"
-  <<","<<"convergence_x"
-  <<","<<"convergence_y"
-  <<","<<"convergence_z"
-  <<","<<"ellipse_long_radius"
-  <<","<<"ellipse_short_radius"
-  <<","<<"ellipse_yaw"
-  <<","<<"TP"
-  <<","<<"iteration"
-  <<","<<"align_time"
-  <<","<<"across_error"
-  <<","<<"along_error"
-  <<std::endl;
-
-  int exe_initial_points=0;
-  int initial_point=11;
-  float x_base_offset[] = {0,0,0,0.5,-0.5,1.0,-1.0,1.5,-1.5,2.0,-2.0};
-  float y_base_offset[] = {0,0.3,-0.3,0,0,0,0,0,0,0,0};
-  double center_convergence_distance_x = 0;
-  double center_convergence_distance_y = 0;
-  Eigen::Matrix2f rot(Eigen::Matrix2f::Identity());
-  Eigen::Matrix<double, 3, 3> covariance;
-
-  std::cout<<"-------------------------------"<<std::endl;
-  //fast ConvergenceEvaluator
-  for (int i = 0; i<initial_point; i++)
-  {
-    exe_initial_points = i + 1;
-    //reset
-    initial_pose_matrix_ = initial_pose_matrix;
-
-    //offset
-    Eigen::Vector2f base_offset_2d;
-    base_offset_2d(0) =  x_base_offset[i];
-    base_offset_2d(1) =  y_base_offset[i];
-    Eigen::Vector2f offset_2d;
-    offset_2d = rot*base_offset_2d;
-
-    offset_2d(0) += center_convergence_distance_x;
-    offset_2d(1) += center_convergence_distance_y;
-
-    initial_pose_matrix_(0,3) += offset_2d(0);
-    initial_pose_matrix_(1,3) += offset_2d(1);
-
-      tf::Matrix3x3 initial_posture;  
-      initial_posture.setValue(static_cast<double>(initial_pose_matrix_(0, 0)), static_cast<double>(initial_pose_matrix_(0, 1)),
-                              static_cast<double>(initial_pose_matrix_(0, 2)), static_cast<double>(initial_pose_matrix_(1, 0)),
-                              static_cast<double>(initial_pose_matrix_(1, 1)), static_cast<double>(initial_pose_matrix_(1, 2)),
-                              static_cast<double>(initial_pose_matrix_(2, 0)), static_cast<double>(initial_pose_matrix_(2, 1)),
-                              static_cast<double>(initial_pose_matrix_(2, 2)));
-      initial_posture.getRPY(initial_roll, initial_pitch, initial_yaw, 1);
-
-    pcl::PointCloud<PointSource>::Ptr output_cloud(new pcl::PointCloud<PointSource>);
-    const auto align_start_time = std::chrono::system_clock::now();
-    key_value_stdmap_["state"] = "Aligning";
-    ndt_ptr_->align(*output_cloud, initial_pose_matrix_);
-    pcl::io::savePCDFileBinary(dir_name +"/" + std::to_string(i) + ".pcd"  , *output_cloud);
-    key_value_stdmap_["state"] = "Sleeping";
-    const auto align_end_time = std::chrono::system_clock::now();
-    const double align_time =
-      std::chrono::duration_cast<std::chrono::microseconds>(align_end_time - align_start_time)
-        .count() /
-      1000.0;
-    align_time_sum += align_time;
-
-    const Eigen::Matrix4f result_pose_matrix = ndt_ptr_->getFinalTransformation();
-    const std::vector<Eigen::Matrix4f> result_pose_matrix_array = ndt_ptr_->getFinalTransformationArray();
-    const float transform_probability = ndt_ptr_->getTransformationProbability();
-    const size_t iteration_num = ndt_ptr_->getFinalNumIteration();
-
-    if(transform_probability < TP_max)
-    {
-      TP_max = transform_probability;
-    }
-
-    if(iteration_num > itr_max)
-    {
-      itr_max = iteration_num;
-    }
-
-    //NDT from ekf initial pose
-    if (i == 0)
-    {
-      center_result_pose_matrix = result_pose_matrix;
-      center_result_pose_matrix_array = result_pose_matrix_array;
-
-      center_convergence_distance_x =  center_result_pose_matrix(0,3) - initial_pose_matrix_(0,3);
-      center_convergence_distance_y =  center_result_pose_matrix(1,3) - initial_pose_matrix_(1,3);
-
-      tf::Matrix3x3 result_posture;  
-      result_posture.setValue(static_cast<double>(center_result_pose_matrix(0, 0)), static_cast<double>(center_result_pose_matrix(0, 1)),
-                              static_cast<double>(center_result_pose_matrix(0, 2)), static_cast<double>(center_result_pose_matrix(1, 0)),
-                              static_cast<double>(center_result_pose_matrix(1, 1)), static_cast<double>(center_result_pose_matrix(1, 2)),
-                              static_cast<double>(center_result_pose_matrix(2, 0)), static_cast<double>(center_result_pose_matrix(2, 1)),
-                              static_cast<double>(center_result_pose_matrix(2, 2)));
-      result_posture.getRPY(ndt_pose_roll, ndt_pose_pitch, ndt_pose_yaw, 1);
-
-      //~Hesse matrix calculate~
-      Eigen::Matrix<double, 6, 6> result_cov_matrix = ndt_ptr_->getCovariance();
-
-      Eigen::Matrix2d LaplaceApp_2d;
-      LaplaceApp_2d(0, 0) = result_cov_matrix(0, 0);
-      LaplaceApp_2d(0, 1) = result_cov_matrix(0, 1);
-      LaplaceApp_2d(1, 0) = result_cov_matrix(1, 0);
-      LaplaceApp_2d(1, 1) = result_cov_matrix(1, 1);
-      Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> laplace_eigensolver(LaplaceApp_2d);
-      const Eigen::Vector2d pc_vector_laplace = laplace_eigensolver.eigenvectors().col(1);
-      laplace_ellipse_yaw = std::atan2(pc_vector_laplace.y(), pc_vector_laplace.x());
-      rot = Eigen::Rotation2Df(laplace_ellipse_yaw);
-      center_transform_probability = transform_probability;
-      cener_iteration_num = iteration_num;     
-      
-      if (
-        cener_iteration_num >= ndt_ptr_->getMaximumIterations() + 2 ||
-        center_transform_probability < converged_param_transform_probability_
-        )
-      {
-      is_converged = false;
-      ++skipping_publish_num;
-      std::cout<<"WARN not using NDT"<<std::endl;
-      ROS_WARN("Not Converged!");
-      break;
-      } else 
-      {
-        skipping_publish_num = 0;
-      }
-    }
-
-    //Judgment
-    if(
-    transform_probability < converged_param_transform_probability_ 
-    ||iteration_num >= ndt_ptr_->getMaximumIterations() + 2 
-    ||align_time_sum > 80
-    )
-    {
-      if (transform_probability < converged_param_transform_probability_)
-      {
-        Warn_TP++;
-        std::cout<<"WARN TP"<<std::endl;
-      }
-      else if (iteration_num >= ndt_ptr_->getMaximumIterations() + 2) 
-      {
-        Warn_iteration++;
-        std::cout<<"WARN Iteration"<<std::endl;
-      } 
-      else if (align_time_sum > 80)
-      {
-        Warn_exe_time++;
-        std::cout<<"WARN exe_time"<<std::endl;
-      }
-    Warn_NDT = 1;
-    //break;
-    }
-
-    // Ellipse calculation
-    Eigen::Vector3d p3d(result_pose_matrix(0,3), result_pose_matrix(1,3),0);
-    tmp_centroid_ += p3d;
-    tmp_cov_ += p3d * p3d.transpose();
-    Eigen::Vector3d centroid = tmp_centroid_ / exe_initial_points;
-    covariance = (tmp_cov_ / exe_initial_points - (centroid * centroid.transpose()));
-    //covariance *= (exe_initial_points -1) / (exe_initial_points);
-    // identity matrix is minimam dispersion
-    Eigen::Matrix<double, 3, 3> identity(Eigen::Matrix<double, 3, 3>::Identity());
-    covariance = covariance + (0.0025 * identity);
-
-    Eigen::Matrix2d cov_2d;
-    cov_2d(0, 0) = covariance(0, 0);
-    cov_2d(0, 1) = covariance(0, 1);
-    cov_2d(1, 0) = covariance(1, 0);
-    cov_2d(1, 1) = covariance(1, 1);
-
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> eigensolver(cov_2d);
-    ellipse_long_radius = std::sqrt(eigensolver.eigenvalues()(1) * chi);
-    ellipse_short_radius = std::sqrt(eigensolver.eigenvalues()(0) * chi);
-    const Eigen::Vector2d pc_vector = eigensolver.eigenvectors().col(1);
-    ellipse_yaw = std::atan2(pc_vector.y(), pc_vector.x());
-
-    A = (std::pow(ellipse_short_radius*cos(ellipse_yaw),2) + std::pow(ellipse_long_radius*sin(ellipse_yaw),2)) / std::pow(ellipse_long_radius*ellipse_short_radius,2);
-    B = (std::pow(ellipse_short_radius,2) * cos(ellipse_yaw)*sin(ellipse_yaw) - std::pow(ellipse_long_radius,2) * cos(ellipse_yaw)*sin(ellipse_yaw))/std::pow(ellipse_long_radius*ellipse_short_radius,2);
-    C = (std::pow(ellipse_short_radius*sin(ellipse_yaw),2) + std::pow(ellipse_long_radius*cos(ellipse_yaw),2)) / std::pow(ellipse_long_radius*ellipse_short_radius,2);
-    P << A,B, B,C;
-    e << cos(ndt_pose_yaw),sin(ndt_pose_yaw);
-    across_tmp = e.transpose()*P*e/P.determinant();
-    across_error = std::sqrt(across_tmp(0,0));
-    e << cos(ndt_pose_yaw + M_PI/2),sin(ndt_pose_yaw + M_PI/2);
-    along_tmp = e.transpose()*P*e/P.determinant();
-    along_error = std::sqrt(along_tmp(0,0));
-
-    if(across_error > 0.3)
-    {
-      Warn_across_error++;
-      std::cout<<"WARN across_error"<<std::endl;
-    }
-
-    // save convergence result in each pose
-     ofs_NDT_each
-     <<std::fixed<<std::setprecision(10)<<sensor_ros_time
-     <<","<<initial_pose_matrix_(0,3)
-     <<","<<initial_pose_matrix_(1,3)
-     <<","<<initial_pose_matrix_(2,3)
-     <<","<<initial_roll
-     <<","<<initial_pitch
-     <<","<<initial_yaw
-     <<","<<center_result_pose_matrix(0, 3)
-     <<","<<center_result_pose_matrix(1, 3)
-     <<","<<center_result_pose_matrix(2, 3)
-     <<","<<ndt_pose_roll
-     <<","<<ndt_pose_pitch
-     <<","<<ndt_pose_yaw
-     <<","<<result_pose_matrix(0,3)
-     <<","<<result_pose_matrix(1,3)
-     <<","<<result_pose_matrix(2,3)
-     <<","<<ellipse_long_radius
-     <<","<<ellipse_short_radius
-     <<","<<ellipse_yaw
-     <<","<<transform_probability
-     <<","<<iteration_num
-     <<","<<align_time
-     <<","<<across_error
-     <<","<<along_error
-     << std::endl;
-
-    // Decide whether to continue the calculation
-    // if the ellipse are small enough, it break
-    if(stop_offset_ID==0 && i==4 && ellipse_long_radius < 0.2)
-    { 
-       break;
-    }
-    
-    if(stop_offset_ID<=1 && i==6 && ellipse_long_radius < 0.5)
-    {
-       break;
-    }
-
-    if(stop_offset_ID<=2 && i==8 && ellipse_long_radius < 1.0)
-    {
-       break;
-    }
-  }
-
-  //Determines the minimum number of offsets for the next scan
-  if(is_converged)
-  {
-    if(ellipse_long_radius < 0.2)
-    {
-      stop_offset_ID=0;
-    }
-    else if(ellipse_long_radius >=0.2 && ellipse_long_radius < 0.5)
-    {
-      stop_offset_ID=1;
-    }
-    else if(ellipse_long_radius >=0.5 && ellipse_long_radius < 1.0)
-    {
-      stop_offset_ID=2;
-    }
-    else if(ellipse_long_radius >=1)
-    {
-      stop_offset_ID=3;
-    }
-  }else
-  {
-  // If the offset of the initial search position is widened too much in such a state, the number of iterations and the processing time will increase. 
-  // So the next scan start at the small offset of the initial search position
-    stop_offset_ID=0;
-  }
-
-  std::cout<<"Offset_ID"<<stop_offset_ID<<std::endl;
-  std::cout<<"-------------------------------"<<std::endl;
-
-  // Substitute the final covariance
-  center_result_cov_matrix(0,0) = covariance(0, 0);
-  center_result_cov_matrix(0,1) = covariance(0, 1);
-  center_result_cov_matrix(1,0) = covariance(1, 0);
-  center_result_cov_matrix(1,1) = covariance(1, 1);
-
-  // finish ConvergenceEvaluator
+  const Eigen::Matrix4f result_pose_matrix = ndt_ptr_->getFinalTransformation();
   Eigen::Affine3d result_pose_affine;
-  result_pose_affine.matrix() = center_result_pose_matrix.cast<double>();
+  result_pose_affine.matrix() = result_pose_matrix.cast<double>();
   const geometry_msgs::Pose result_pose_msg = tf2::toMsg(result_pose_affine);
 
+  const std::vector<Eigen::Matrix4f> result_pose_matrix_array =
+    ndt_ptr_->getFinalTransformationArray();
   std::vector<geometry_msgs::Pose> result_pose_msg_array;
-  for (const auto & pose_matrix : center_result_pose_matrix_array) {
+  for (const auto & pose_matrix : result_pose_matrix_array) {
     Eigen::Affine3d pose_affine;
     pose_affine.matrix() = pose_matrix.cast<double>();
     const geometry_msgs::Pose pose_msg = tf2::toMsg(pose_affine);
@@ -717,19 +371,21 @@ void NDTScanMatcher::callbackSensorPoints(
     std::chrono::duration_cast<std::chrono::microseconds>(exe_end_time - exe_start_time).count() /
     1000.0;
 
-  //rest
-  tmp_centroid_(0, 0) = 0;
-  tmp_centroid_(1, 0) = 0;
-  tmp_centroid_(2, 0) = 0;
-  tmp_cov_(0, 0) = 0;
-  tmp_cov_(0, 1) = 0;
-  tmp_cov_(0, 2) = 0;
-  tmp_cov_(1, 0) = 0;
-  tmp_cov_(1, 1) = 0;
-  tmp_cov_(1, 2) = 0;
-  tmp_cov_(2, 0) = 0;
-  tmp_cov_(2, 1) = 0;
-  tmp_cov_(2, 2) = 0;
+  const float transform_probability = ndt_ptr_->getTransformationProbability();
+
+  const size_t iteration_num = ndt_ptr_->getFinalNumIteration();
+
+  bool is_converged = true;
+  static size_t skipping_publish_num = 0;
+  if (
+    iteration_num >= ndt_ptr_->getMaximumIterations() + 2 ||
+    transform_probability < converged_param_transform_probability_) {
+    is_converged = false;
+    ++skipping_publish_num;
+    ROS_WARN("Not Converged");
+  } else {
+    skipping_publish_num = 0;
+  }
 
   // publish
   geometry_msgs::PoseStamped result_pose_stamped_msg;
@@ -741,68 +397,24 @@ void NDTScanMatcher::callbackSensorPoints(
   result_pose_with_cov_msg.header.stamp = sensor_ros_time;
   result_pose_with_cov_msg.header.frame_id = map_frame_;
   result_pose_with_cov_msg.pose.pose = result_pose_msg;
-
-  // //TODO temporary value
-  result_pose_with_cov_msg.pose.covariance[0] = center_result_cov_matrix(0,0); // x - x
-  result_pose_with_cov_msg.pose.covariance[1] = center_result_cov_matrix(0,1); // x - y
-  result_pose_with_cov_msg.pose.covariance[6] = center_result_cov_matrix(1,0); // y - x
-  result_pose_with_cov_msg.pose.covariance[7] = center_result_cov_matrix(1,1); // y - y
-
-  result_pose_with_cov_msg.pose.covariance[5 * 6 + 5] = 0.000625; //yaw-yaw
-
-  // result_pose_with_cov_msg.pose.covariance[5] = center_result_cov_matrix(0,5); //x-yaw
-
-  // result_pose_with_cov_msg.pose.covariance[11] = center_result_cov_matrix(1,5); //y-yaw
-  // result_pose_with_cov_msg.pose.covariance[30] = center_result_cov_matrix(5,0); //yaw-x
-  // result_pose_with_cov_msg.pose.covariance[31] = center_result_cov_matrix(5,1); //yaw-y
-  //result_pose_with_cov_msg.pose.covariance[35] = center_result_cov_matrix(5,5)*500; //yaw-yaw
-
-  // result_pose_with_cov_msg.pose.covariance[0] = 0.025; // x - x
-  // result_pose_with_cov_msg.pose.covariance[7] = 0.025; // y - y
-  // result_pose_with_cov_msg.pose.covariance[2 * 6 + 2] = 0.025;
-  // result_pose_with_cov_msg.pose.covariance[3 * 6 + 3] = 0.000625;
-  // result_pose_with_cov_msg.pose.covariance[4 * 6 + 4] = 0.000625;
-  // result_pose_with_cov_msg.pose.covariance[5 * 6 + 5] = 0.000625; //yaw-yaw
+  //TODO temporary value
+  result_pose_with_cov_msg.pose.covariance[0] = 0.025;
+  result_pose_with_cov_msg.pose.covariance[1 * 6 + 1] = 0.025;
+  result_pose_with_cov_msg.pose.covariance[2 * 6 + 2] = 0.025;
+  result_pose_with_cov_msg.pose.covariance[3 * 6 + 3] = 0.000625;
+  result_pose_with_cov_msg.pose.covariance[4 * 6 + 4] = 0.000625;
+  result_pose_with_cov_msg.pose.covariance[5 * 6 + 5] = 0.000625;
 
   if (is_converged) {
     ndt_pose_pub_.publish(result_pose_stamped_msg);
     ndt_pose_with_covariance_pub_.publish(result_pose_with_cov_msg);
-
-    ofs_NDT
-    <<exe_initial_points
-    <<","<<sensor_ros_time
-    <<","<<align_time_sum
-    <<","<<Warn_NDT
-    <<","<<Warn_TP
-    <<","<<Warn_iteration
-    <<","<<Warn_exe_time
-    <<","<<Warn_across_error
-    <<","<<std::fixed<<std::setprecision(10)<<center_result_pose_matrix(0, 3)
-    <<","<<center_result_pose_matrix(1, 3)
-  // <<","<<center_result_pose_matrix(2, 3)
-  // <<","<<center_transform_probability
-  // <<","<<center_result_cov_matrix(0,0)
-  // <<","<<center_result_cov_matrix(0,1)
-  // <<","<<center_result_cov_matrix(1,0)
-  // <<","<<center_result_cov_matrix(1,1)
-  <<","<<ellipse_short_radius
-  <<","<<TP_max
-  <<","<<itr_max
-  <<","<<ndt_pose_yaw
-  <<","<<laplace_ellipse_yaw
-  <<","<<ellipse_yaw
-  <<","<<ellipse_long_radius
-  <<","<<stop_offset_ID
-  <<","<<across_error
-  <<","<<along_error
-  << std::endl;
   }
 
   publishTF(map_frame_, ndt_base_frame_, result_pose_stamped_msg);
 
   pcl::PointCloud<PointSource>::Ptr sensor_points_mapTF_ptr(new pcl::PointCloud<PointSource>);
   pcl::transformPointCloud(
-    *sensor_points_baselinkTF_ptr, *sensor_points_mapTF_ptr, center_result_pose_matrix);
+    *sensor_points_baselinkTF_ptr, *sensor_points_mapTF_ptr, result_pose_matrix);
   sensor_msgs::PointCloud2 sensor_points_mapTF_msg;
   pcl::toROSMsg(*sensor_points_mapTF_ptr, sensor_points_mapTF_msg);
   sensor_points_mapTF_msg.header.stamp = sensor_ros_time;
@@ -843,11 +455,11 @@ void NDTScanMatcher::callbackSensorPoints(
   exe_time_pub_.publish(exe_time_msg);
 
   std_msgs::Float32 transform_probability_msg;
-  transform_probability_msg.data = center_transform_probability;
+  transform_probability_msg.data = transform_probability;
   transform_probability_pub_.publish(transform_probability_msg);
 
   std_msgs::Float32 iteration_num_msg;
-  iteration_num_msg.data = cener_iteration_num;
+  iteration_num_msg.data = iteration_num;
   iteration_num_pub_.publish(iteration_num_msg);
 
   std_msgs::Float32 initial_to_result_distance_msg;
@@ -896,8 +508,8 @@ void NDTScanMatcher::callbackSensorPoints(
   initial_to_result_distance_new_pub_.publish(initial_to_result_distance_new_msg);
 
   key_value_stdmap_["seq"] = std::to_string(sensor_points_sensorTF_msg_ptr->header.seq);
-  key_value_stdmap_["transform_probability"] = std::to_string(center_transform_probability);
-  key_value_stdmap_["iteration_num"] = std::to_string(cener_iteration_num);
+  key_value_stdmap_["transform_probability"] = std::to_string(transform_probability);
+  key_value_stdmap_["iteration_num"] = std::to_string(iteration_num);
   key_value_stdmap_["skipping_publish_num"] = std::to_string(skipping_publish_num);
 
 }
