@@ -23,6 +23,7 @@ std::ofstream ofs_NDT;
 #include <cmath>
 #include <iomanip>
 #include <thread>
+#include <sys/stat.h>
 
 #include <tf/tf.h>
 #include <tf2_eigen/tf2_eigen.h>
@@ -78,7 +79,9 @@ NDTScanMatcher::NDTScanMatcher(ros::NodeHandle nh, ros::NodeHandle private_nh)
     ndt_ptr_.reset(new NormalDistributionsTransformPCLGeneric<PointSource, PointTarget>);
   }
 
-   ofs_NDT.open("/home/megken/BAGs/judg.csv",std::ios_base::app);
+   std::string mkdir_name =  "/home/megken/AutowareArchitectureProposal.proj/BAGs";
+   mkdir(mkdir_name.c_str(),0777);
+   ofs_NDT.open("/home/megken/AutowareArchitectureProposal.proj/BAGs/judg.csv",std::ios_base::app);
    ofs_NDT
    <<"initial_points"
    <<","<<"ros_time"
@@ -405,10 +408,12 @@ void NDTScanMatcher::callbackSensorPoints(
   Eigen::Vector2d e;
   Eigen::MatrixXd along_tmp,across_tmp;
 
+  std::string mkdir_name =  "/home/megken/AutowareArchitectureProposal.proj/BAGs/00_OUTPUT_.iv/";
+  mkdir(mkdir_name.c_str(),0777);
   std::ofstream ofs_NDT_each;
   std::stringstream ss;
   ss << sensor_ros_time;
-  std::string dir_name = "/home/megken/BAGs/00_OUTPUT_.iv/" + ss.str();
+  std::string dir_name = "/home/megken/AutowareArchitectureProposal.proj/BAGs/00_OUTPUT_.iv/" + ss.str();
   boost::filesystem::create_directory(dir_name);
   ofs_NDT_each.open(dir_name +"/" + "each_location.csv");
   ofs_NDT_each
