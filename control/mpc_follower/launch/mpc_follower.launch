@@ -6,11 +6,15 @@
   <node pkg="mpc_follower" type="mpc_follower" name="mpc_follower" output="screen">
     <rosparam command="load" file="$(arg mpc_follower_param_path)"/>
     <remap from="~input/reference_trajectory" to="/planning/scenario_planning/trajectory"/>
+    <!-- <remap from="~input/reference_trajectory" to="/planning/scenario_planning/lane_driving/trajectory"/> -->
     <remap from="~input/current_velocity" to="/localization/twist"/>
     <remap from="~input/current_steering" to="/vehicle/status/steering"/>
     <remap from="~output/twist_raw" to="lateral/twist_raw"/>
     <remap from="~output/control_raw" to="lateral/control_cmd"/>
     <remap from="~output/predicted_trajectory" to="predicted_trajectory"/>
+    <remap from="~output/traj_x" to="traj_x"/>
+    <remap from="~output/traj_y" to="traj_y"/>
+    <remap from="~output/curvature" to="curvature"/>
   </node>
 
   <!-- steering dynamics simulator for turning -->

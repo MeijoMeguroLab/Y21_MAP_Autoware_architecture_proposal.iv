@@ -102,6 +102,12 @@ MPCFollower::MPCFollower() : nh_(""), pnh_("~"), tf_listener_(tf_buffer_)
     pnh_.advertise<autoware_control_msgs::ControlCommandStamped>("output/control_raw", 1);
   pub_predicted_traj_ =
     pnh_.advertise<autoware_planning_msgs::Trajectory>("output/predicted_trajectory", 1);
+  pub_traj_x_ =
+    pnh_.advertise<std_msgs::Float32MultiArray>("output/traj_x", 1);
+  pub_traj_y_ =
+    pnh_.advertise<std_msgs::Float32MultiArray>("output/traj_y", 1);
+  pub_curvature_ =
+    pnh_.advertise<std_msgs::Float32MultiArray>("output/curvature", 1);
 
   /* wait to get vehicle position */
   while (ros::ok()) {
@@ -885,6 +891,25 @@ void MPCFollower::onTrajectory(const autoware_planning_msgs::Trajectory::ConstPt
 
   /* calculate curvature */
   MPCUtils::calcTrajectoryCurvature(curvature_smoothing_num_, &mpc_traj_smoothed);
+
+  std::vector<double> traj_x_tmp = mpc_traj_smoothed.x;
+  std::vector<double> traj_y_tmp = mpc_traj_smoothed.y;
+  std::vector<double> curvature_tmp = mpc_traj_smoothed.k;
+  int curvature_size = curvature_tmp.size();
+  std_msgs::Float32MultiArray traj_x;
+  std_msgs::Float32MultiArray traj_y;
+  std_msgs::Float32MultiArray curvature;
+  traj_x.data.resize(curvature_size);
+  traj_y.data.resize(curvature_size);
+  curvature.data.resize(curvature_size);
+  for (int i = 0; i < curvature_size -1; ++i){
+    traj_x.data[i] = traj_x_tmp[i];
+    traj_y.data[i] = traj_y_tmp[i];
+    curvature.data[i] = curvature_tmp[i];
+  }
+  pub_traj_x_.publish(traj_x);
+  pub_traj_y_.publish(traj_y);
+  pub_curvature_.publish(curvature);
 
   /* add end point with vel=0 on traj for mpc prediction */
   {

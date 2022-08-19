@@ -95,6 +95,9 @@ private:
   ros::NodeHandle pnh_;                //!< @brief private ros node handle
   ros::Publisher pub_ctrl_cmd_;        //!< @brief topic publisher for control command
   ros::Publisher pub_predicted_traj_;  //!< @brief topic publisher for control command
+  ros::Publisher pub_traj_x_;       //!< @brief topic publisher for control command
+  ros::Publisher pub_traj_y_;       //!< @brief topic publisher for control command
+  ros::Publisher pub_curvature_;       //!< @brief topic publisher for control command
   ros::Subscriber sub_ref_path_;       //!< @brief topic subscriber for reference waypoints
   ros::Subscriber sub_steering_;       //!< @brief subscriber for current steering
   ros::Subscriber sub_current_vel_;    //!< @brief subscriber for current velocity
