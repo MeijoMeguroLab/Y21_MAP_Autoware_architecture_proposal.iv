@@ -16,6 +16,7 @@
 
  #include <fstream>
 std::ofstream ofs_NDT;
+std::ofstream ofs_tp_max;
 
 #include "ndt_scan_matcher/ndt_scan_matcher_core.h"
 
@@ -79,20 +80,23 @@ NDTScanMatcher::NDTScanMatcher(ros::NodeHandle nh, ros::NodeHandle private_nh)
     ndt_ptr_.reset(new NormalDistributionsTransformPCLGeneric<PointSource, PointTarget>);
   }
 
-   std::string mkdir_name =  "/home/megken/AutowareArchitectureProposal.proj/BAGs";
-   mkdir(mkdir_name.c_str(),0777);
-   ofs_NDT.open("/home/megken/AutowareArchitectureProposal.proj/BAGs/judg.csv",std::ios_base::app);
-   ofs_NDT
-   <<"initial_points"
-   <<","<<"ros_time"
-   <<","<<"exe_time"
-   <<","<<"Warn_NDT"
-   <<","<<"Warn_TP"
-   <<","<<"Warn_iteration"
-   <<","<<"Warn_exe_time"
-   <<","<<"across_error"
-   <<","<<"current_pose.x"
-   <<","<<"current_pose.y"
+  std::string mkdir_name =  "/home/megken/AutowareArchitectureProposal.proj/BAGs";
+  mkdir(mkdir_name.c_str(),0777);
+  std::string mkdir_name_ekf =  "/home/megken/AutowareArchitectureProposal.proj/BAGs/EKF";
+  mkdir(mkdir_name_ekf.c_str(),0777);
+  ofs_NDT.open("/home/megken/AutowareArchitectureProposal.proj/BAGs/judg.csv",std::ios_base::app);
+  ofs_NDT
+  <<"initial_points"
+  <<","<<"ros_time"
+  <<","<<"elapsed_time"
+  <<","<<"exe_time"
+  <<","<<"Warn_NDT"
+  <<","<<"Warn_TP"
+  <<","<<"Warn_iteration"
+  <<","<<"Warn_exe_time"
+  <<","<<"across_error"
+  <<","<<"current_pose.x"
+  <<","<<"current_pose.y"
    // <<","<<"current_pose.z"
   // <<","<<"current_pose.z"
   // <<","<<"transformation_probability"
@@ -101,7 +105,9 @@ NDTScanMatcher::NDTScanMatcher(ros::NodeHandle nh, ros::NodeHandle private_nh)
   // <<","<<"covariance_yx"
   // <<","<<"covariance_yy"
   <<","<<"ellipse_short_radius" 
+  <<","<<"center_TP"
   <<","<<"max_TP"
+  <<","<<"min_TP"
   <<","<<"max_itr"
   <<","<<"ellipse center"
   <<","<<"ellipse hesse"
@@ -110,6 +116,24 @@ NDTScanMatcher::NDTScanMatcher(ros::NodeHandle nh, ros::NodeHandle private_nh)
   <<","<<"stop_offset_ID"
   <<","<<"across_error"
   <<","<<"along_error"
+  <<std::endl;
+
+  ofs_tp_max.open("/home/megken/AutowareArchitectureProposal.proj/BAGs/tp_max.csv",std::ios_base::app);
+  ofs_tp_max
+  <<"initial_points"
+  <<","<<"ros_time"
+  <<","<<"elapsed_time"
+  <<","<<"current_convergence_x"
+  <<","<<"current_convergence_y"
+  <<","<<"current_convergence_z"
+  <<","<<"current_convergence_roll"
+  <<","<<"current_convergence_pitch"
+  <<","<<"current_convergence_yaw"
+  <<","<<"convergence_x"
+  <<","<<"convergence_y"
+  <<","<<"convergence_z"
+  <<","<<"max_TP"
+  <<","<<"max_itr"
   <<std::endl;
 
   int points_queue_size = 0;
@@ -128,6 +152,12 @@ NDTScanMatcher::NDTScanMatcher(ros::NodeHandle nh, ros::NodeHandle private_nh)
   private_nh_.getParam("step_size", step_size);
   private_nh_.getParam("resolution", resolution);
   private_nh_.getParam("max_iterations", max_iterations);
+  private_nh_.getParam("use_aoki_method", use_aoki_method);
+  private_nh_.getParam("use_end_point", use_end_point);
+  private_nh_.getParam("use_init_tp_correction", use_init_tp_correction);
+  private_nh_.getParam("tp_threshold", tp_threshold);
+  private_nh_.getParam("use_diff_tp_rate", use_diff_tp_rate);
+  private_nh_.getParam("tp_rate_threshold", tp_rate_threshold);
   ndt_ptr_->setTransformationEpsilon(trans_epsilon);
   ndt_ptr_->setStepSize(step_size);
   ndt_ptr_->setResolution(resolution);
@@ -143,11 +173,20 @@ NDTScanMatcher::NDTScanMatcher(ros::NodeHandle nh, ros::NodeHandle private_nh)
     nh_.subscribe("ekf_pose_with_covariance", 100, &NDTScanMatcher::callbackInitialPose, this);
   map_points_sub_ = nh_.subscribe("pointcloud_map", 1, &NDTScanMatcher::callbackMapPoints, this);
   sensor_points_sub_ = nh_.subscribe("points_raw", 1, &NDTScanMatcher::callbackSensorPoints, this);
+  twist_sub_ = nh_.subscribe("/vehicle/status/twist", 1, &NDTScanMatcher::twistcallback, this);
 
   sensor_aligned_pose_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("points_aligned", 10);
   ndt_pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("ndt_pose", 10);
   ndt_pose_with_covariance_pub_ =
     nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("ndt_pose_with_covariance", 10);
+  ndt_pose_with_covariance_tp_max_pub_ =
+    nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("ndt_pose_with_covariance_tp_max", 10);
+  ndt_pose_with_covariance_tp_max_end_pub_ =
+    nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("ndt_pose_with_covariance_tp_max_end", 10);
+  ndt_pose_with_covariance_tp_max_threshold_pub_ =
+    nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("ndt_pose_with_covariance_tp_max_threshold", 10);
+  ndt_pose_with_covariance__evaluation_pub_ =
+    nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("ndt_pose_with_covariance_evaluation", 10);
   initial_pose_with_covariance_pub_ =
     nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("initial_pose_with_covariance", 10);
   exe_time_pub_ = nh_.advertise<std_msgs::Float32>("exe_time_ms", 10);
@@ -174,6 +213,10 @@ NDTScanMatcher::NDTScanMatcher(ros::NodeHandle nh, ros::NodeHandle private_nh)
 }
 
 NDTScanMatcher::~NDTScanMatcher() {}
+
+void NDTScanMatcher::twistcallback(const geometry_msgs::TwistStamped::ConstPtr & twist_ptr){
+  twist = *twist_ptr;
+};
 
 void NDTScanMatcher::timerDiagnostic()
 {
@@ -333,6 +376,10 @@ void NDTScanMatcher::callbackSensorPoints(
 
   const std::string sensor_frame = sensor_points_sensorTF_msg_ptr->header.frame_id;
   const auto sensor_ros_time = sensor_points_sensorTF_msg_ptr->header.stamp;
+  if (first_time == true){
+    first_sensor_time = sensor_ros_time.toSec();
+    first_time = false;
+  }
 
   boost::shared_ptr<pcl::PointCloud<PointSource>> sensor_points_sensorTF_ptr(
     new pcl::PointCloud<PointSource>);
@@ -380,10 +427,24 @@ void NDTScanMatcher::callbackSensorPoints(
   tf2::fromMsg(initial_pose_cov_msg.pose.pose, initial_pose_affine);
   const Eigen::Matrix4f initial_pose_matrix = initial_pose_affine.matrix().cast<float>();
   Eigen::Matrix4f initial_pose_matrix_;
+  Eigen::Matrix4f initial_pose_matrix_along;
 
   double align_time_sum = 0;
+  double align_ros_time_sum = 0;
+  double align_time_sum_along = 0;
+  double align_ros_time_sum_along = 0;
   Eigen::Matrix4f center_result_pose_matrix(Eigen::Matrix4f::Identity());
+  Eigen::Matrix4f tp_max_matrix(Eigen::Matrix4f::Identity());
+  Eigen::Matrix4f tp_min_matrix(Eigen::Matrix4f::Identity());
+  Eigen::Matrix4f tp_max_end_matrix(Eigen::Matrix4f::Identity());
+  Eigen::Matrix4f tp_min_end_matrix(Eigen::Matrix4f::Identity());
+  Eigen::Matrix4f center_result_pose_matrix_along(Eigen::Matrix4f::Identity());
   std::vector<Eigen::Matrix4f> center_result_pose_matrix_array;
+  std::vector<Eigen::Matrix4f> tp_max_matrix_array;
+  std::vector<Eigen::Matrix4f> tp_min_matrix_array;
+  std::vector<Eigen::Matrix4f> tp_max_end_matrix_array;
+  std::vector<Eigen::Matrix4f> tp_min_end_matrix_array;
+  std::vector<Eigen::Matrix4f> center_result_pose_matrix_array_along;
   Eigen::Matrix<double, 6, 6> center_result_cov_matrix;
   float center_transform_probability;
   size_t cener_iteration_num;
@@ -394,30 +455,41 @@ void NDTScanMatcher::callbackSensorPoints(
   int Warn_iteration=0;
   int Warn_exe_time=0;
   int Warn_across_error=0;
-  float TP_max=10;
-  size_t itr_max=0;  
+  size_t itr_max=0;
+  bool long_error_flag = false;
+
+  float center_transform_probability_along;
+  size_t cener_iteration_num_along;
+  float tp_max_transform_probability;
+  size_t tp_max_iteration_num;
+  size_t tp_max_end_iteration_num;
+  size_t tp_min_end_iteration_num;
 
   double initial_roll, ndt_pose_roll;
   double initial_pitch, ndt_pose_pitch;
   double initial_yaw, ndt_pose_yaw;
   double ellipse_yaw;
   double laplace_ellipse_yaw;
+  double tp_max_yaw = 0, center_yaw = 0;
+  double ndt_pose_roll_tmp,ndt_pose_pitch_tmp,ndt_pose_yaw_tmp;
 
   double A,B,C,across_error,along_error;
   Eigen::Matrix2d P;
   Eigen::Vector2d e;
   Eigen::MatrixXd along_tmp,across_tmp;
 
+  double elapsed_time = sensor_ros_time.toSec() - first_sensor_time;
   std::string mkdir_name =  "/home/megken/AutowareArchitectureProposal.proj/BAGs/00_OUTPUT_.iv/";
   mkdir(mkdir_name.c_str(),0777);
   std::ofstream ofs_NDT_each;
   std::stringstream ss;
-  ss << sensor_ros_time;
-  std::string dir_name = "/home/megken/AutowareArchitectureProposal.proj/BAGs/00_OUTPUT_.iv/" + ss.str();
+  std::string dir_name = "/home/megken/AutowareArchitectureProposal.proj/BAGs/00_OUTPUT_.iv/";
   boost::filesystem::create_directory(dir_name);
-  ofs_NDT_each.open(dir_name +"/" + "each_location.csv");
+  ss << elapsed_time;
+  ofs_NDT_each.open(dir_name +"/" + ss.str() + ".csv");
   ofs_NDT_each
   <<"sensor_ros_time"
+  <<","<<"elapsed_time"
   <<","<<"x_offset"
   <<","<<"y_offset"
   <<","<<"z_offset"
@@ -444,21 +516,126 @@ void NDTScanMatcher::callbackSensorPoints(
   <<std::endl;
 
   int exe_initial_points=0;
-  int initial_point=11;
-  float x_base_offset[] = {0,0,0,0.5,-0.5,1.0,-1.0,1.5,-1.5,2.0,-2.0};
-  float y_base_offset[] = {0,0.3,-0.3,0,0,0,0,0,0,0,0};
+  std::vector<double> x_base_offset = {0};
+  std::vector<double> y_base_offset = {0};
+  int initial_point = x_base_offset.size();
+  double diff_tp_rate = 1 - (tp_min_global / tp_max_global);
+  double x_offset;
+  double twist_hz = 50;
+  double lidar_hz = 10;
+  double sf = 0.015; // 0.015 = 1.5%
+  double min_x_offset = 0.5;
+  double stop_threshold_velocity = 2.7;
+  int min_dr_cnt = abs(int((min_x_offset /(twist.twist.linear.x * sf)) * (twist_hz/lidar_hz))+1);
+  double test = twist.twist.linear.x * sf * (lidar_hz/twist_hz);
+  std::cout<<" min_dr_cnt " << min_dr_cnt << " , " << test << std::endl;
+  if (use_aoki_method && !use_end_point){ // error
+    x_base_offset.resize(11);
+    y_base_offset.resize(11);
+    x_base_offset = {0,0,0,0.5,-0.5,1.0,-1.0,1.5,-1.5,2.0,-2.0};
+    y_base_offset = {0,0.3,-0.3,0,0,0,0,0,0,0,0};
+    initial_point = x_base_offset.size();
+  }else if(use_end_point){
+    x_base_offset.resize(5);
+    y_base_offset.resize(5);
+    double lateral_offset = 0.3;
+    y_base_offset = {0, lateral_offset, -lateral_offset, 0,0};
+    x_base_offset[0] = 0;
+    x_base_offset[1] = 0;
+    x_base_offset[2] = 0;
+    if (last_long_error_flag == false && diff_tp_rate > tp_rate_threshold){
+      int test_dr_cnt = dr_cnt;
+      dr_cnt = dr_cnt - min_dr_cnt;
+      std::cout<<" offset reset " << " , " << test_dr_cnt << " , " << dr_cnt << std::endl;
+    }
+    if (dr_cnt <= min_dr_cnt){
+      dr_cnt = min_dr_cnt;
+    }
+    if (twist.twist.linear.x < stop_threshold_velocity){
+      dr_cnt = 1;
+    }
+    double stderr_vx = twist.twist.linear.x * sf * dr_cnt;
+    // 1scan 0.22m(80km/h,SF1%)
+    double sf_offset = stderr_vx * (lidar_hz/twist_hz);
+    double x_offset_tmp = sf_offset;
+    x_offset = x_offset_tmp > min_x_offset ? x_offset_tmp : min_x_offset;
+    x_base_offset[3] = x_offset;
+    x_base_offset[4] = -x_offset;
+    // dr_cnt reset
+    // if (x_offset_tmp > last_longitudinal_error){
+    //   dr_cnt = abs(int((last_longitudinal_error /twist.twist.linear.x * sf) * (twist_hz/lidar_hz))+ 1);
+    // }
+    initial_point = x_base_offset.size();
+    std::cout << std::setprecision(4) << "x_offset: "<< x_base_offset[3] << " , " << dr_cnt << " , " << sf_offset << " , " << last_longitudinal_error  << " , " << x_offset << std::endl;
+  }
   double center_convergence_distance_x = 0;
   double center_convergence_distance_y = 0;
+  double tp_max_convergence_distance_x = 0;
+  double tp_max_convergence_distance_y = 0;
+  double tp_max_end;
+  double tp_min_end;
   Eigen::Matrix2f rot(Eigen::Matrix2f::Identity());
   Eigen::Matrix<double, 3, 3> covariance;
 
-  std::cout<<"-------------------------------"<<std::endl;
+  std::cout<<"diff_tp_rate: " << diff_tp_rate << std::endl;
+  if (use_init_tp_correction && diff_tp > tp_threshold && !use_diff_tp_rate && last_long_error_flag){ // Correct the initial position of the NDT search to the highest position of the previous TP
+    std::cout<<"correction_init_pose: " << use_end_point << " , " << tp_threshold << " , " << diff_tp << " , " << correction_init_pose(0 ,3) << " , " << correction_init_pose(1 ,3) <<std::endl;
+  }else if(use_init_tp_correction && diff_tp_rate > tp_rate_threshold && use_diff_tp_rate && last_long_error_flag){
+    std::cout<<"correction_init_pose_rate: " << use_end_point << " , " << tp_rate_threshold << " , " << diff_tp_rate << " , " << correction_init_pose(0 ,3) << " , " << correction_init_pose(1 ,3) <<std::endl;
+
+    // debug
+    Eigen::Matrix4f test;
+    double correction_init_pose_roll,correction_init_pose_pitch,correction_init_pose_yaw;
+    double initial_pose_matrix_roll,initial_pose_matrix_pitch,initial_pose_matrix_yaw;
+    double test_roll,test_pitch,test_yaw;
+    test = initial_pose_matrix * correction_init_rotation + correction_init_pose;
+    // std::cout << "correction_init_pose: " << correction_init_pose(0,0) << " , " << correction_init_pose(0,1) << " , " << correction_init_pose(0,2) << " , " << correction_init_pose(0,3) << " , " << correction_init_pose(1,0) << " , " << correction_init_pose(1,1) << " , " << correction_init_pose(1,2) << " , " << correction_init_pose(1,3) << " , " << correction_init_pose(2,0) << " , " << correction_init_pose(2,1) << " , " << correction_init_pose(2,2) << " , " << correction_init_pose(2,3) << std::endl;
+    // std::cout << "initial_pose_matrix: " << initial_pose_matrix(0,0) << " , " << initial_pose_matrix(0,1) << " , " << initial_pose_matrix(0,2) << " , " << initial_pose_matrix(0,3) << " , " << initial_pose_matrix(1,0) << " , " << initial_pose_matrix(1,1) << " , " << initial_pose_matrix(1,2) << " , " << initial_pose_matrix(1,3) << " , " << initial_pose_matrix(2,0) << " , " << initial_pose_matrix(2,1) << " , " << initial_pose_matrix(2,2) << " , " << initial_pose_matrix(2,3) << std::endl;
+    // std::cout << "test: " << test(0,0) << " , " << test(0,1) << " , " << test(0,2) << " , " << test(0,3) << " , " << test(1,0) << " , " << test(1,1) << " , " << test(1,2) << " , " << test(1,3) << " , " << test(2,0) << " , " << test(2,1) << " , " << test(2,2) << " , " << test(2,3) << std::endl;
+    tf::Matrix3x3 correction_init_pose3;
+    correction_init_pose3.setValue(static_cast<double>(correction_init_rotation(0, 0)), static_cast<double>(correction_init_rotation(0, 1)),
+                            static_cast<double>(correction_init_rotation(0, 2)), static_cast<double>(correction_init_rotation(1, 0)),
+                            static_cast<double>(correction_init_rotation(1, 1)), static_cast<double>(correction_init_rotation(1, 2)),
+                            static_cast<double>(correction_init_rotation(2, 0)), static_cast<double>(correction_init_rotation(2, 1)),
+                            static_cast<double>(correction_init_rotation(2, 2)));
+    correction_init_pose3.getRPY(correction_init_pose_roll, correction_init_pose_pitch, correction_init_pose_yaw, 1);
+
+    tf::Matrix3x3 initial_pose_matrix3;
+    initial_pose_matrix3.setValue(static_cast<double>(initial_pose_matrix(0, 0)), static_cast<double>(initial_pose_matrix(0, 1)),
+                            static_cast<double>(initial_pose_matrix(0, 2)), static_cast<double>(initial_pose_matrix(1, 0)),
+                            static_cast<double>(initial_pose_matrix(1, 1)), static_cast<double>(initial_pose_matrix(1, 2)),
+                            static_cast<double>(initial_pose_matrix(2, 0)), static_cast<double>(initial_pose_matrix(2, 1)),
+                            static_cast<double>(initial_pose_matrix(2, 2)));
+    initial_pose_matrix3.getRPY(initial_pose_matrix_roll, initial_pose_matrix_pitch, initial_pose_matrix_yaw, 1);
+
+    tf::Matrix3x3 test3;
+    test3.setValue(static_cast<double>(initial_pose_matrix(0, 0)), static_cast<double>(test(0, 1)),
+                            static_cast<double>(test(0, 2)), static_cast<double>(test(1, 0)),
+                            static_cast<double>(test(1, 1)), static_cast<double>(test(1, 2)),
+                            static_cast<double>(test(2, 0)), static_cast<double>(test(2, 1)),
+                            static_cast<double>(test(2, 2)));
+    test3.getRPY(test_roll, test_pitch, test_yaw, 1);
+    // std::cout << "correction_init_xy: " << correction_init_pose(0,3) << " , " << correction_init_pose(1,3)  << std::endl;
+    // std::cout << "initial_xy: " << initial_pose_matrix(0,3) << " , " << initial_pose_matrix(1,3)  << std::endl;
+    // std::cout << "test_xy: " << test(0,3) << " , " << test(1,3) << std::endl;
+    // std::cout << "correction_init_rpy: " << correction_init_pose_roll << " , " << correction_init_pose_pitch << " , " << correction_init_pose_yaw << std::endl;
+    // std::cout << "initial_rpy: " << initial_pose_matrix_roll << " , " << initial_pose_matrix_pitch << " , " << initial_pose_matrix_yaw << std::endl;
+    // std::cout << "test_rpy: " << test_roll << " , " << test_pitch << " , " << test_yaw << std::endl;
+
+  }
   //fast ConvergenceEvaluator
+  int tp_max_id = 0;
   for (int i = 0; i<initial_point; i++)
   {
     exe_initial_points = i + 1;
     //reset
-    initial_pose_matrix_ = initial_pose_matrix;
+    if (use_init_tp_correction && diff_tp > tp_threshold && !use_diff_tp_rate && last_long_error_flag){ // Correct the initial position of the NDT search to the highest position of the previous TP
+      initial_pose_matrix_ = initial_pose_matrix * correction_init_rotation + correction_init_pose;
+    }else if (use_init_tp_correction && diff_tp_rate > tp_rate_threshold && use_diff_tp_rate && last_long_error_flag){
+      initial_pose_matrix_ = initial_pose_matrix * correction_init_rotation + correction_init_pose;
+    }else{
+      initial_pose_matrix_ = initial_pose_matrix;
+    }
 
     //offset
     Eigen::Vector2f base_offset_2d;
@@ -482,35 +659,35 @@ void NDTScanMatcher::callbackSensorPoints(
       initial_posture.getRPY(initial_roll, initial_pitch, initial_yaw, 1);
 
     pcl::PointCloud<PointSource>::Ptr output_cloud(new pcl::PointCloud<PointSource>);
+    const auto align_start_ros_time = ros::Time::now();
     const auto align_start_time = std::chrono::system_clock::now();
     key_value_stdmap_["state"] = "Aligning";
     ndt_ptr_->align(*output_cloud, initial_pose_matrix_);
-    pcl::io::savePCDFileBinary(dir_name +"/" + std::to_string(i) + ".pcd"  , *output_cloud);
+    // pcl::io::savePCDFileBinary(dir_name +"/" + std::to_string(i) + ".pcd"  , *output_cloud);
     key_value_stdmap_["state"] = "Sleeping";
     const auto align_end_time = std::chrono::system_clock::now();
+    const auto align_end_ros_time = ros::Time::now();
     const double align_time =
       std::chrono::duration_cast<std::chrono::microseconds>(align_end_time - align_start_time)
         .count() /
       1000.0;
     align_time_sum += align_time;
+    double align_ros_time = align_end_ros_time.nsec - align_start_ros_time.nsec;
+    align_ros_time_sum += align_ros_time;
 
     const Eigen::Matrix4f result_pose_matrix = ndt_ptr_->getFinalTransformation();
     const std::vector<Eigen::Matrix4f> result_pose_matrix_array = ndt_ptr_->getFinalTransformationArray();
     const float transform_probability = ndt_ptr_->getTransformationProbability();
     const size_t iteration_num = ndt_ptr_->getFinalNumIteration();
 
-    if(transform_probability < TP_max)
-    {
-      TP_max = transform_probability;
-    }
-
     if(iteration_num > itr_max)
     {
       itr_max = iteration_num;
     }
 
+    tp_tmp = transform_probability;
     //NDT from ekf initial pose
-    if (i == 0)
+    if (i == 0) // center_result
     {
       center_result_pose_matrix = result_pose_matrix;
       center_result_pose_matrix_array = result_pose_matrix_array;
@@ -540,6 +717,13 @@ void NDTScanMatcher::callbackSensorPoints(
       rot = Eigen::Rotation2Df(laplace_ellipse_yaw);
       center_transform_probability = transform_probability;
       cener_iteration_num = iteration_num;     
+      center_yaw = ndt_pose_yaw;
+
+      tp_max = transform_probability; // init
+      tp_min = transform_probability; // init
+      tp_max_matrix = result_pose_matrix; // init
+      tp_min_matrix = result_pose_matrix; // init
+      tp_max_yaw = ndt_pose_yaw; // init
       
       if (
         cener_iteration_num >= ndt_ptr_->getMaximumIterations() + 2 ||
@@ -555,13 +739,22 @@ void NDTScanMatcher::callbackSensorPoints(
       {
         skipping_publish_num = 0;
       }
+    }else{
+      tf::Matrix3x3 result_posture_tmp;
+      result_posture_tmp.setValue(static_cast<double>(result_pose_matrix(0, 0)), static_cast<double>(result_pose_matrix(0, 1)),
+                              static_cast<double>(result_pose_matrix(0, 2)), static_cast<double>(result_pose_matrix(1, 0)),
+                              static_cast<double>(result_pose_matrix(1, 1)), static_cast<double>(result_pose_matrix(1, 2)),
+                              static_cast<double>(result_pose_matrix(2, 0)), static_cast<double>(result_pose_matrix(2, 1)),
+                              static_cast<double>(result_pose_matrix(2, 2)));
+      result_posture_tmp.getRPY(ndt_pose_roll_tmp, ndt_pose_pitch_tmp, ndt_pose_yaw_tmp, 1);
     }
 
     //Judgment
+    double align_time_sum_max = 80;
     if(
     transform_probability < converged_param_transform_probability_ 
     ||iteration_num >= ndt_ptr_->getMaximumIterations() + 2 
-    ||align_time_sum > 80
+    ||align_time_sum > align_time_sum_max
     )
     {
       if (transform_probability < converged_param_transform_probability_)
@@ -574,13 +767,70 @@ void NDTScanMatcher::callbackSensorPoints(
         Warn_iteration++;
         std::cout<<"WARN Iteration"<<std::endl;
       } 
-      else if (align_time_sum > 80)
+      else if (align_time_sum > align_time_sum_max)
       {
         Warn_exe_time++;
         std::cout<<"WARN exe_time"<<std::endl;
       }
     Warn_NDT = 1;
     //break;
+    }else{
+      if (tp_max < tp_tmp)
+      {
+        tp_max = tp_tmp;
+        tp_max_matrix = result_pose_matrix;
+        tp_max_matrix_array = result_pose_matrix_array;
+        tp_max_iteration_num = iteration_num;
+        tp_max_yaw = ndt_pose_yaw_tmp;
+        tp_max_id = i;
+      }
+
+      if (tp_min > tp_tmp)
+      {
+        tp_min = tp_tmp;
+        tp_min_matrix = result_pose_matrix;
+        tp_min_matrix_array = result_pose_matrix_array;
+      }
+
+      // use center TP and both ends(use_aoki_method and use_end_point)
+      if (i % 2 == 1 && center_transform_probability < tp_tmp){
+        tp_max_end = tp_tmp;
+        tp_max_end_matrix = result_pose_matrix;
+        tp_max_end_matrix_array = result_pose_matrix_array;
+        tp_max_end_iteration_num = iteration_num;
+        tp_max_yaw = ndt_pose_yaw_tmp;
+        tp_min_end = center_transform_probability;
+        tp_min_end_matrix = center_result_pose_matrix;
+        tp_min_end_matrix_array = center_result_pose_matrix_array;
+        tp_min_end_iteration_num = cener_iteration_num;
+      }else if(i % 2 == 1 && center_transform_probability > tp_tmp){
+        tp_max_end = center_transform_probability;
+        tp_max_end_matrix = center_result_pose_matrix;
+        tp_max_end_matrix_array = center_result_pose_matrix_array;
+        tp_max_end_iteration_num = cener_iteration_num;
+        tp_min_end = tp_tmp;
+        tp_min_end_matrix = result_pose_matrix;
+        tp_min_end_matrix_array = result_pose_matrix_array;
+        tp_min_end_iteration_num = iteration_num;
+      }
+
+      // use center TP and both ends(use_end_point)
+      if (i % 2 == 0 && tp_max_end < tp_tmp){
+        tp_max_end = tp_tmp;
+        tp_max_end_matrix = result_pose_matrix;
+        tp_max_end_matrix_array = result_pose_matrix_array;
+        tp_max_end_iteration_num = iteration_num;
+        tp_max_yaw = ndt_pose_yaw_tmp;
+      }else if(i % 2 == 0 && tp_min_end > tp_tmp){
+        tp_min_end = tp_tmp;
+        tp_min_end_matrix = result_pose_matrix;
+        tp_min_end_matrix_array = result_pose_matrix_array;
+        tp_min_end_iteration_num = iteration_num;
+      }
+    }
+
+    if (i < 3 && tp_tmp > center_transform_probability){
+      long_error_flag = true;
     }
 
     // Ellipse calculation
@@ -626,6 +876,7 @@ void NDTScanMatcher::callbackSensorPoints(
     // save convergence result in each pose
      ofs_NDT_each
      <<std::fixed<<std::setprecision(10)<<sensor_ros_time
+     <<","<<elapsed_time
      <<","<<initial_pose_matrix_(0,3)
      <<","<<initial_pose_matrix_(1,3)
      <<","<<initial_pose_matrix_(2,3)
@@ -653,21 +904,74 @@ void NDTScanMatcher::callbackSensorPoints(
 
     // Decide whether to continue the calculation
     // if the ellipse are small enough, it break
-    if(stop_offset_ID==0 && i==4 && ellipse_long_radius < 0.2)
-    { 
-       break;
-    }
-    
-    if(stop_offset_ID<=1 && i==6 && ellipse_long_radius < 0.5)
-    {
-       break;
+    if (!use_end_point){
+      if(stop_offset_ID==0 && i==4 && ellipse_long_radius < 0.2)
+      {
+        break;
+      }
+
+      if(stop_offset_ID<=1 && i==6 && ellipse_long_radius < 0.5)
+      {
+        break;
+      }
+
+      if(stop_offset_ID<=2 && i==8 && ellipse_long_radius < 1.0)
+      {
+        break;
+      }
     }
 
-    if(stop_offset_ID<=2 && i==8 && ellipse_long_radius < 1.0)
-    {
-       break;
-    }
   }
+
+  if (use_end_point && !use_diff_tp_rate){
+    diff_tp = tp_max_end - tp_min_end;
+    tp_max_global = tp_max_end;
+    tp_min_global = tp_min_end;
+  }else if(use_end_point && use_diff_tp_rate){
+    tp_max_global = tp_max_end;
+    tp_min_global = tp_min_end;
+  }else if(!use_end_point && !use_diff_tp_rate){
+    diff_tp = tp_max - tp_min;
+    tp_max_global = tp_max;
+    tp_min_global = tp_min;
+  }else if(!use_end_point && use_diff_tp_rate){
+    tp_max_global = tp_max;
+    tp_min_global = tp_min;
+  }
+  correction_init_pose(0 ,3) = tp_max_matrix(0, 3) - center_result_pose_matrix(0, 3);
+  correction_init_pose(1 ,3) = tp_max_matrix(1, 3) - center_result_pose_matrix(1, 3);
+  bool offset_yaw = false;
+  double theta = center_yaw - tp_max_yaw;
+  if (offset_yaw && theta != 0){
+    correction_init_rotation(0,0) = cos(theta);
+    correction_init_rotation(0,1) = -sin(theta);
+    correction_init_rotation(1,0) = sin(theta);
+    correction_init_rotation(1,1) = cos(theta);
+    correction_init_rotation(2,2) = 1;
+    correction_init_rotation(3,3) = 1;
+    std::cout << "theta: " << theta << " , " << cos(theta) << " , " << sin(theta) << std::endl;
+  }else{
+    correction_init_rotation(0,0) = 1;
+    correction_init_rotation(1,1) = 1;
+    correction_init_rotation(2,2) = 1;
+    correction_init_rotation(3,3) = 1;
+    // std::cout << "theta: " << cos(theta) << " , " << sin(theta) << std::endl;
+  }
+  if (long_error_flag == false){  // center_TP > end_TP
+    last_long_error_flag = false;
+  }else{
+    last_long_error_flag = true;
+  }
+  if (x_offset > along_error ){
+    if (dr_cnt > min_dr_cnt && long_error_flag == false){
+      dr_cnt --;
+    }
+  }else{
+    dr_cnt ++;
+  }
+  last_longitudinal_error = along_error;
+  last_lateral_error = across_error;
+
 
   //Determines the minimum number of offsets for the next scan
   if(is_converged)
@@ -684,7 +988,7 @@ void NDTScanMatcher::callbackSensorPoints(
     {
       stop_offset_ID=2;
     }
-    else if(ellipse_long_radius >=1)
+    else if(ellipse_long_radius >=1.0)
     {
       stop_offset_ID=3;
     }
@@ -692,10 +996,14 @@ void NDTScanMatcher::callbackSensorPoints(
   {
   // If the offset of the initial search position is widened too much in such a state, the number of iterations and the processing time will increase. 
   // So the next scan start at the small offset of the initial search position
-    stop_offset_ID=0;
+    // stop_offset_ID=0;
   }
 
-  std::cout<<"Offset_ID"<<stop_offset_ID<<std::endl;
+  std::cout << "time:" << align_time_sum<<  std::endl;
+  std::cout<<"late-long "<<across_error << " , " << along_error <<std::endl;
+  if (!use_end_point){
+    std::cout<<"Offset_ID "<<stop_offset_ID << " , " << tp_max_id <<std::endl;
+  }
   std::cout<<"-------------------------------"<<std::endl;
 
   // Substitute the final covariance
@@ -708,6 +1016,11 @@ void NDTScanMatcher::callbackSensorPoints(
   Eigen::Affine3d result_pose_affine;
   result_pose_affine.matrix() = center_result_pose_matrix.cast<double>();
   const geometry_msgs::Pose result_pose_msg = tf2::toMsg(result_pose_affine);
+
+  // finish ConvergenceEvaluator TP max
+  Eigen::Affine3d result_pose_affine_tp_max;
+  result_pose_affine_tp_max.matrix() = tp_max_matrix.cast<double>();
+  const geometry_msgs::Pose result_pose_msg_tp_max = tf2::toMsg(result_pose_affine_tp_max);
 
   std::vector<geometry_msgs::Pose> result_pose_msg_array;
   for (const auto & pose_matrix : center_result_pose_matrix_array) {
@@ -747,6 +1060,16 @@ void NDTScanMatcher::callbackSensorPoints(
   result_pose_with_cov_msg.header.frame_id = map_frame_;
   result_pose_with_cov_msg.pose.pose = result_pose_msg;
 
+  geometry_msgs::PoseWithCovarianceStamped result_pose_with_cov_msg_tp_max;
+  result_pose_with_cov_msg_tp_max.header.stamp = sensor_ros_time;
+  result_pose_with_cov_msg_tp_max.header.frame_id = map_frame_;
+  result_pose_with_cov_msg_tp_max.pose.pose = result_pose_msg_tp_max;
+
+  geometry_msgs::PoseWithCovarianceStamped result_pose_with_cov_msg_tp_max_end;
+  result_pose_with_cov_msg_tp_max_end.header.stamp = sensor_ros_time;
+  result_pose_with_cov_msg_tp_max_end.header.frame_id = map_frame_;
+  result_pose_with_cov_msg_tp_max_end.pose.pose = result_pose_msg_tp_max;
+
   // //TODO temporary value
   result_pose_with_cov_msg.pose.covariance[0] = center_result_cov_matrix(0,0); // x - x
   result_pose_with_cov_msg.pose.covariance[1] = center_result_cov_matrix(0,1); // x - y
@@ -756,11 +1079,24 @@ void NDTScanMatcher::callbackSensorPoints(
   result_pose_with_cov_msg.pose.covariance[5 * 6 + 5] = 0.000625; //yaw-yaw
 
   // result_pose_with_cov_msg.pose.covariance[5] = center_result_cov_matrix(0,5); //x-yaw
-
   // result_pose_with_cov_msg.pose.covariance[11] = center_result_cov_matrix(1,5); //y-yaw
   // result_pose_with_cov_msg.pose.covariance[30] = center_result_cov_matrix(5,0); //yaw-x
   // result_pose_with_cov_msg.pose.covariance[31] = center_result_cov_matrix(5,1); //yaw-y
-  //result_pose_with_cov_msg.pose.covariance[35] = center_result_cov_matrix(5,5)*500; //yaw-yaw
+  // result_pose_with_cov_msg.pose.covariance[35] = center_result_cov_matrix(5,5)*500; //yaw-yaw
+
+  result_pose_with_cov_msg_tp_max.pose.covariance[0] = center_result_cov_matrix(0,0); // x - x
+  result_pose_with_cov_msg_tp_max.pose.covariance[1] = center_result_cov_matrix(0,1); // x - y
+  result_pose_with_cov_msg_tp_max.pose.covariance[6] = center_result_cov_matrix(1,0); // y - x
+  result_pose_with_cov_msg_tp_max.pose.covariance[7] = center_result_cov_matrix(1,1); // y - y
+
+  result_pose_with_cov_msg_tp_max.pose.covariance[5 * 6 + 5] = 0.000625; //yaw-yaw
+
+  result_pose_with_cov_msg_tp_max_end.pose.covariance[0] = center_result_cov_matrix(0,0); // x - x
+  result_pose_with_cov_msg_tp_max_end.pose.covariance[1] = center_result_cov_matrix(0,1); // x - y
+  result_pose_with_cov_msg_tp_max_end.pose.covariance[6] = center_result_cov_matrix(1,0); // y - x
+  result_pose_with_cov_msg_tp_max_end.pose.covariance[7] = center_result_cov_matrix(1,1); // y - y
+
+  result_pose_with_cov_msg_tp_max_end.pose.covariance[5 * 6 + 5] = 0.000625; //yaw-yaw
 
   // result_pose_with_cov_msg.pose.covariance[0] = 0.025; // x - x
   // result_pose_with_cov_msg.pose.covariance[7] = 0.025; // y - y
@@ -772,10 +1108,20 @@ void NDTScanMatcher::callbackSensorPoints(
   if (is_converged) {
     ndt_pose_pub_.publish(result_pose_stamped_msg);
     ndt_pose_with_covariance_pub_.publish(result_pose_with_cov_msg);
+    ndt_pose_with_covariance_tp_max_pub_.publish(result_pose_with_cov_msg_tp_max);
+    ndt_pose_with_covariance_tp_max_end_pub_.publish(result_pose_with_cov_msg_tp_max_end);
+    if (use_init_tp_correction && diff_tp > tp_threshold){
+      ndt_pose_with_covariance_tp_max_threshold_pub_.publish(result_pose_with_cov_msg_tp_max);
+    }else if (diff_tp > tp_threshold){
+      ndt_pose_with_covariance_tp_max_threshold_pub_.publish(result_pose_with_cov_msg_tp_max);
+    }else{
+      ndt_pose_with_covariance_tp_max_threshold_pub_.publish(result_pose_with_cov_msg);
+    }
 
     ofs_NDT
     <<exe_initial_points
     <<","<<sensor_ros_time
+    <<","<<elapsed_time
     <<","<<align_time_sum
     <<","<<Warn_NDT
     <<","<<Warn_TP
@@ -791,7 +1137,9 @@ void NDTScanMatcher::callbackSensorPoints(
   // <<","<<center_result_cov_matrix(1,0)
   // <<","<<center_result_cov_matrix(1,1)
   <<","<<ellipse_short_radius
-  <<","<<TP_max
+  <<","<<center_transform_probability
+  <<","<<tp_max
+  <<","<<tp_min
   <<","<<itr_max
   <<","<<ndt_pose_yaw
   <<","<<laplace_ellipse_yaw
@@ -801,7 +1149,29 @@ void NDTScanMatcher::callbackSensorPoints(
   <<","<<across_error
   <<","<<along_error
   << std::endl;
+
+  ofs_tp_max
+  <<exe_initial_points
+  <<","<<std::fixed<<std::setprecision(10)<<sensor_ros_time
+  <<","<<elapsed_time
+  <<","<<initial_pose_matrix_(0,3)
+  <<","<<initial_pose_matrix_(1,3)
+  <<","<<initial_pose_matrix_(2,3)
+  <<","<<initial_roll
+  <<","<<initial_pitch
+  <<","<<initial_yaw
+  <<","<<std::fixed<<std::setprecision(10)<<center_result_pose_matrix(0, 3)
+  <<","<<center_result_pose_matrix(1, 3)
+  <<","<<std::fixed<<std::setprecision(10)<<tp_max_matrix(0, 3)
+  <<","<<tp_max_matrix(1, 3)
+  <<","<<tp_max_matrix(2, 3)
+  <<","<<tp_max
+  <<","<<tp_max_iteration_num
+  << std::endl;
+  }else{
+    std::cout<<"NDT not converged" <<std::endl;
   }
+  ndt_pose_with_covariance__evaluation_pub_.publish(result_pose_with_cov_msg);
 
   publishTF(map_frame_, ndt_base_frame_, result_pose_stamped_msg);
 
@@ -845,14 +1215,17 @@ void NDTScanMatcher::callbackSensorPoints(
 
   std_msgs::Float32 exe_time_msg;
   exe_time_msg.data = exe_time;
+  // exe_time_msg.data = align_time_sum;
   exe_time_pub_.publish(exe_time_msg);
 
   std_msgs::Float32 transform_probability_msg;
   transform_probability_msg.data = center_transform_probability;
+  // transform_probability_msg.data = tp_max;
   transform_probability_pub_.publish(transform_probability_msg);
 
   std_msgs::Float32 iteration_num_msg;
   iteration_num_msg.data = cener_iteration_num;
+  // iteration_num_msg.data = itr_max;
   iteration_num_pub_.publish(iteration_num_msg);
 
   std_msgs::Float32 initial_to_result_distance_msg;

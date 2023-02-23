@@ -87,6 +87,7 @@ private:
     autoware_localization_srvs::PoseWithCovarianceStamped::Request & req,
     autoware_localization_srvs::PoseWithCovarianceStamped::Response & res);
 
+  void twistcallback(const geometry_msgs::TwistStamped::ConstPtr & twist_ptr);
   void callbackMapPoints(const sensor_msgs::PointCloud2::ConstPtr & pointcloud2_msg_ptr);
   void callbackSensorPoints(const sensor_msgs::PointCloud2::ConstPtr & pointcloud2_msg_ptr);
   void callbackInitialPose(
@@ -119,10 +120,15 @@ private:
   ros::Subscriber initial_pose_sub_;
   ros::Subscriber map_points_sub_;
   ros::Subscriber sensor_points_sub_;
+  ros::Subscriber twist_sub_;
 
   ros::Publisher sensor_aligned_pose_pub_;
   ros::Publisher ndt_pose_pub_;
   ros::Publisher ndt_pose_with_covariance_pub_;
+  ros::Publisher ndt_pose_with_covariance__evaluation_pub_;
+  ros::Publisher ndt_pose_with_covariance_tp_max_pub_;
+  ros::Publisher ndt_pose_with_covariance_tp_max_end_pub_;
+  ros::Publisher ndt_pose_with_covariance_tp_max_threshold_pub_;
   ros::Publisher initial_pose_with_covariance_pub_;
   ros::Publisher exe_time_pub_;
   ros::Publisher transform_probability_pub_;
@@ -164,4 +170,31 @@ private:
   double ellipse_long_radius;
   double ellipse_short_radius;
   double chi = 9.21;  // Chi-square distribution value of error ellipse 99%
+  std::vector<double> x_base_offset;
+  std::vector<double> y_base_offset;
+
+  bool first_time = true;
+  double first_sensor_time = 0.0;
+  // double  first_sensor_time = 1657884590.917946; // 2022/07/15 run6 -s 350 moriyamaPA-nagoyaIC
+  // double  first_sensor_time = 1657883757.690229; // 2022/07/15 run5 -s 370 nagoyaIC-moriyamaPA
+  // double  first_sensor_time = 1655807266.110875; // 2022/06/21 run2 -s 1120 higashiyama tunnel
+  float tp_tmp;
+  float tp_max;
+  float tp_min;
+  Eigen::Matrix4f correction_init_pose = Eigen::Matrix4f::Zero(4,4);
+  Eigen::Matrix4f correction_init_rotation = Eigen::Matrix4f::Zero(4,4);
+  bool use_aoki_method;
+  bool use_init_tp_correction;
+  bool use_end_point;
+  bool use_diff_tp_rate;
+  double tp_threshold;
+  double diff_tp;
+  double tp_rate_threshold;
+  double tp_max_global = 0;
+  double tp_min_global = 0;
+  int dr_cnt = 1;
+  geometry_msgs::TwistStamped twist;
+  bool last_long_error_flag = false;
+  double last_longitudinal_error;
+  double last_lateral_error;
 };
